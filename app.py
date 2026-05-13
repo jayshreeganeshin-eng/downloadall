@@ -21,7 +21,7 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 
 try:
-    from core.engine import UniversalDownloader, TelegramDownloader, DownloadTask, DownloadStatus
+    from core.engine import UniversalDownloader, TelegramDownloader
 except ImportError as e:
     print(f"Import error: {e}")
     print("Make sure you're running from the project root directory")
