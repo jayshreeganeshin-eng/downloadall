@@ -1,11 +1,11 @@
-# 🌐 Universal Downloader
+# 🌐 Universal Downloader - Production Ready
 
-A powerful localhost downloader web application with both GUI and CLI interfaces supporting **1864+ platforms** via yt-dlp, plus full Telegram channel/group cloning capabilities.
+A powerful localhost downloader web application with both GUI and CLI interfaces supporting **1871+ platforms** via yt-dlp, plus **Torrent downloads**, **Tor/Onion sites**, and full **Telegram channel/group cloning** capabilities.
 
 ## ✨ Features
 
-### Supported Platforms (1864+)
-- **YouTube** - Videos, playlists, channels, shorts (up to 4K)
+### Supported Platforms (1871+)
+- **YouTube** - Videos, playlists, channels, shorts (up to 8K)
 - **Instagram** - Posts, reels, stories, profile videos
 - **TikTok** - Videos, profiles
 - **X (Twitter)** - Tweets, threads, profiles
@@ -18,19 +18,35 @@ A powerful localhost downloader web application with both GUI and CLI interfaces
 - **Vimeo** - Videos
 - **Dailymotion** - Videos
 - **Bilibili** - Videos
+- **Discord** - Messages, media (via URL)
 - **And 1850+ more platforms!**
 
 ### Download Options
-- 🎬 Video quality: 4K (2160p), 2K (1440p), 1080p, 720p, 480p, 360p
-- 🎵 Audio-only extraction (MP3)
+- 🎬 Video quality: 8K, 4K (2160p), 2K (1440p), 1080p, 720p, 480p, 360p
+- 🎵 Audio-only extraction (MP3, FLAC, AAC)
 - 📺 Playlist/Channel bulk download
 - 👤 Profile video downloads
+- 🔄 Batch downloads
+
+### Torrent Downloads
+- 🧲 Magnet link support
+- 📄 .torrent file downloads
+- ⏸️ Pause/Resume functionality
+- 📊 Real-time progress tracking
+- 🌐 DHT, LSD, PEX support
+
+### Tor/Onion Sites
+- 🧅 .onion site downloads
+- 🔒 Anonymous downloading via Tor network
+- 🌐 Automatic Tor proxy configuration
+- 📄 Fetch onion page content
 
 ### Telegram Features
 - 📥 Download all media from channels/groups
 - 🔄 Clone entire channels to other channels
 - 🔄 Clone groups to other groups
 - ⚙️ Configurable message limits
+- 🔐 Secure authentication
 
 ## 📁 Project Structure
 
