@@ -3,43 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Downloader</title>
+    <title>Universal Downloader - Pro</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🌐 Universal Downloader</h1>
-            <p class="subtitle">Download from 1871+ platforms including YouTube, Instagram, TikTok, X, Telegram & more</p>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-download"></i>
+                <h1>Universal Downloader</h1>
+            </div>
+            <nav class="nav-tabs">
+                <button class="tab-btn active" data-tab="download">
+                    <i class="fas fa-cloud-download-alt"></i> Download
+                </button>
+                <button class="tab-btn" data-tab="telegram">
+                    <i class="fab fa-telegram"></i> Telegram
+                </button>
+                <button class="tab-btn" data-tab="files">
+                    <i class="fas fa-folder-open"></i> Files
+                </button>
+                <button class="tab-btn" data-tab="settings">
+                    <i class="fas fa-cog"></i> Settings
+                </button>
+            </nav>
         </header>
 
-        <!-- Navigation Tabs -->
-        <nav class="tabs">
-            <button class="tab-btn active" data-tab="download">📥 Download</button>
-            <button class="tab-btn" data-tab="telegram">✈️ Telegram</button>
-            <button class="tab-btn" data-tab="tasks">📋 Tasks</button>
-            <button class="tab-btn" data-tab="files">📁 Files</button>
-        </nav>
-
-        <!-- Download Tab -->
-        <section id="download-tab" class="tab-content active">
-            <div class="card">
-                <h2>Standard Download</h2>
-                <form id="download-form">
-                    <div class="form-group">
-                        <label for="url">URL or Username</label>
-                        <input type="text" id="url" placeholder="https://youtube.com/watch?v=... or username" required>
-                    </div>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Download Tab -->
+            <section id="download-tab" class="tab-content active">
+                <div class="card">
+                    <h2><i class="fas fa-link"></i> Start Download</h2>
                     
-                    <div class="form-row">
+                    <div class="form-group">
+                        <label for="url">URL or Magnet Link</label>
+                        <input type="text" id="url" placeholder="Paste URL here (YouTube, Instagram, TikTok, Torrent, Tor, etc.)" autocomplete="off">
+                    </div>
+
+                    <div class="options-grid">
+                        <div class="form-group">
+                            <label for="quality">Quality</label>
+                            <select id="quality">
+                                <option value="best">Best Available</option>
+                                <option value="8k">8K (4320p)</option>
+                                <option value="4k">4K (2160p)</option>
+                                <option value="1440">1440p</option>
+                                <option value="1080">1080p</option>
+                                <option value="720">720p</option>
+                                <option value="480">480p</option>
+                                <option value="360">360p</option>
+                            </select>
+                        </div>
+
                         <div class="form-group">
                             <label for="platform">Platform</label>
                             <select id="platform">
-                                <option value="auto">Auto-detect</option>
+                                <option value="auto">Auto-Detect</option>
                                 <option value="youtube">YouTube</option>
                                 <option value="instagram">Instagram</option>
                                 <option value="tiktok">TikTok</option>
-                                <option value="twitter">X (Twitter)</option>
+                                <option value="twitter">Twitter/X</option>
                                 <option value="facebook">Facebook</option>
                                 <option value="linkedin">LinkedIn</option>
                                 <option value="snapchat">Snapchat</option>
@@ -47,150 +73,154 @@
                                 <option value="reddit">Reddit</option>
                                 <option value="twitch">Twitch</option>
                                 <option value="vimeo">Vimeo</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="quality">Quality</label>
-                            <select id="quality">
-                                <option value="best">Best Available</option>
-                                <option value="2160">4K (2160p)</option>
-                                <option value="1440">2K (1440p)</option>
-                                <option value="1080">Full HD (1080p)</option>
-                                <option value="720">HD (720p)</option>
-                                <option value="480">SD (480p)</option>
-                                <option value="360">Low (360p)</option>
+                                <option value="discord">Discord</option>
                             </select>
                         </div>
                     </div>
-                    
-                    <div class="form-row">
-                        <div class="checkbox-group">
-                            <label>
-                                <input type="checkbox" id="audio-only">
-                                🎵 Audio Only (MP3)
-                            </label>
-                        </div>
-                        <div class="checkbox-group">
-                            <label>
-                                <input type="checkbox" id="playlist">
-                                📺 Playlist/Channel
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">🚀 Start Download</button>
-                </form>
-            </div>
-            
-            <div id="download-result" class="result-card hidden">
-                <h3>Download Status</h3>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-                <p id="progress-text">Waiting...</p>
-                <div id="files-list"></div>
-            </div>
-        </section>
 
-        <!-- Telegram Tab -->
-        <section id="telegram-tab" class="tab-content">
-            <div class="card">
-                <h2>✈️ Telegram Configuration</h2>
-                <form id="telegram-config-form">
-                    <div class="form-group">
-                        <label for="api-id">API ID</label>
-                        <input type="number" id="api-id" placeholder="Get from my.telegram.org" required>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="audio-only">
+                            <span class="checkmark"></span>
+                            Audio Only (MP3)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="is-playlist">
+                            <span class="checkmark"></span>
+                            Playlist/Channel
+                        </label>
                     </div>
-                    
-                    <div class="form-group">
-                        <label for="api-hash">API Hash</label>
-                        <input type="text" id="api-hash" placeholder="Get from my.telegram.org" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="phone">Phone Number</label>
-                        <input type="tel" id="phone" placeholder="+1234567890" required>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">🔗 Connect</button>
-                </form>
-                
-                <div id="telegram-status" class="status-box hidden">
-                    <span class="status-indicator"></span>
-                    <span class="status-text">Connected</span>
+
+                    <button id="download-btn" class="btn btn-primary">
+                        <i class="fas fa-download"></i> Start Download
+                    </button>
                 </div>
-            </div>
-            
-            <div class="card">
-                <h2>Telegram Download</h2>
-                <form id="telegram-download-form">
-                    <div class="form-group">
-                        <label for="tg-channel">Channel/Group Username</label>
-                        <input type="text" id="tg-channel" placeholder="@channelname" required>
+
+                <!-- Active Downloads -->
+                <div class="card downloads-list">
+                    <h2><i class="fas fa-tasks"></i> Active Downloads</h2>
+                    <div id="downloads-container">
+                        <p class="empty-state">No active downloads</p>
                     </div>
+                </div>
+            </section>
+
+            <!-- Telegram Tab -->
+            <section id="telegram-tab" class="tab-content">
+                <div class="card">
+                    <h2><i class="fab fa-telegram-plane"></i> Telegram Tools</h2>
                     
+                    <div class="form-group">
+                        <label for="tg-api-id">API ID</label>
+                        <input type="text" id="tg-api-id" placeholder="Your Telegram API ID">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tg-api-hash">API Hash</label>
+                        <input type="text" id="tg-api-hash" placeholder="Your Telegram API Hash">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tg-phone">Phone Number</label>
+                        <input type="tel" id="tg-phone" placeholder="+1234567890">
+                    </div>
+
+                    <hr class="divider">
+
+                    <h3>Clone Channel/Group</h3>
+                    <div class="form-group">
+                        <label for="tg-source">Source Channel/Group</label>
+                        <input type="text" id="tg-source" placeholder="@source_channel">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tg-dest">Destination Channel/Group</label>
+                        <input type="text" id="tg-dest" placeholder="@destination_channel">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tg-clone-type">Type</label>
+                        <select id="tg-clone-type">
+                            <option value="channel">Channel</option>
+                            <option value="group">Group</option>
+                        </select>
+                    </div>
+
                     <div class="form-group">
                         <label for="tg-limit">Message Limit</label>
                         <input type="number" id="tg-limit" value="100" min="1" max="1000">
                     </div>
+
+                    <button id="clone-btn" class="btn btn-primary">
+                        <i class="fas fa-copy"></i> Clone Channel/Group
+                    </button>
+                </div>
+            </section>
+
+            <!-- Files Tab -->
+            <section id="files-tab" class="tab-content">
+                <div class="card">
+                    <h2><i class="fas fa-folder"></i> Downloaded Files</h2>
+                    <button id="refresh-files-btn" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <div id="files-container">
+                        <p class="empty-state">No files downloaded yet</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings-tab" class="tab-content">
+                <div class="card">
+                    <h2><i class="fas fa-cog"></i> Settings</h2>
                     
-                    <button type="submit" class="btn btn-primary">📥 Download Media</button>
-                </form>
-            </div>
-            
-            <div class="card">
-                <h2>Clone Channel/Group</h2>
-                <form id="telegram-clone-form">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="clone-source">Source</label>
-                            <input type="text" id="clone-source" placeholder="@source_channel" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="clone-dest">Destination</label>
-                            <input type="text" id="clone-dest" placeholder="@dest_channel" required>
+                    <div class="form-group">
+                        <label for="download-dir">Download Directory</label>
+                        <input type="text" id="download-dir" value="downloads" readonly>
+                    </div>
+
+                    <div class="info-box">
+                        <h4><i class="fas fa-info-circle"></i> Supported Platforms</h4>
+                        <p>1871+ platforms including:</p>
+                        <div class="platform-tags">
+                            <span class="tag">YouTube</span>
+                            <span class="tag">Instagram</span>
+                            <span class="tag">TikTok</span>
+                            <span class="tag">Twitter/X</span>
+                            <span class="tag">Facebook</span>
+                            <span class="tag">LinkedIn</span>
+                            <span class="tag">Snapchat</span>
+                            <span class="tag">Pinterest</span>
+                            <span class="tag">Reddit</span>
+                            <span class="tag">Twitch</span>
+                            <span class="tag">Vimeo</span>
+                            <span class="tag">Discord</span>
+                            <span class="tag">Torrents</span>
+                            <span class="tag">Tor Networks</span>
+                            <span class="tag">Telegram</span>
                         </div>
                     </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="clone-type">Type</label>
-                            <select id="clone-type">
-                                <option value="channel">Channel</option>
-                                <option value="group">Group</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="clone-limit">Message Limit</label>
-                            <input type="number" id="clone-limit" value="100" min="1" max="1000">
-                        </div>
+
+                    <div class="info-box">
+                        <h4><i class="fas fa-keyboard"></i> CLI Usage</h4>
+                        <pre><code># Download YouTube video
+python app.py -u "URL" -q 1080
+
+# Audio only
+python app.py -u "URL" -a
+
+# Start web interface
+python app.py --web --port 5000</code></pre>
                     </div>
-                    
-                    <button type="submit" class="btn btn-primary">🔄 Clone</button>
-                </form>
-            </div>
-        </section>
+                </div>
+            </section>
+        </main>
 
-        <!-- Tasks Tab -->
-        <section id="tasks-tab" class="tab-content">
-            <div class="card">
-                <h2>Download History</h2>
-                <button class="btn btn-secondary" onclick="loadTasks()">🔄 Refresh</button>
-                <div id="tasks-list" class="tasks-list"></div>
-            </div>
-        </section>
-
-        <!-- Files Tab -->
-        <section id="files-tab" class="tab-content">
-            <div class="card">
-                <h2>Downloaded Files</h2>
-                <button class="btn btn-secondary" onclick="loadFiles()">🔄 Refresh</button>
-                <div id="files-grid" class="files-grid"></div>
-            </div>
-        </section>
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Universal Downloader v2.0.0 | 1871+ Platforms Supported</p>
+        </footer>
     </div>
 
     <script src="/static/app.js"></script>

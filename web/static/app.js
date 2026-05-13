@@ -1,307 +1,290 @@
 // Universal Downloader - Frontend JavaScript
 
 document.addEventListener('DOMContentLoaded', function() {
-    initTabs();
-    initForms();
-    loadTasks();
-    loadFiles();
-});
-
-// Tab Navigation
-function initTabs() {
+    // Tab Navigation
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
-    
+
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const tabId = btn.dataset.tab;
             
-            // Remove active class from all
+            // Update buttons
             tabBtns.forEach(b => b.classList.remove('active'));
-            tabContents.forEach(c => c.classList.remove('active'));
-            
-            // Add active class to selected
             btn.classList.add('active');
-            document.getElementById(`${tabId}-tab`).classList.add('active');
+            
+            // Update content
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                if (content.id === `${tabId}-tab`) {
+                    content.classList.add('active');
+                }
+            });
+            
+            // Refresh files if files tab
+            if (tabId === 'files') {
+                loadFiles();
+            }
         });
     });
-}
 
-// Initialize Forms
-function initForms() {
-    // Standard download form
-    document.getElementById('download-form').addEventListener('submit', handleDownload);
-    
-    // Telegram config form
-    document.getElementById('telegram-config-form').addEventListener('submit', handleTelegramConfig);
-    
-    // Telegram download form
-    document.getElementById('telegram-download-form').addEventListener('submit', handleTelegramDownload);
-    
-    // Telegram clone form
-    document.getElementById('telegram-clone-form').addEventListener('submit', handleTelegramClone);
-}
+    // Download Button
+    const downloadBtn = document.getElementById('download-btn');
+    downloadBtn.addEventListener('click', startDownload);
 
-// Handle Standard Download
-async function handleDownload(e) {
-    e.preventDefault();
-    
-    const url = document.getElementById('url').value;
-    const platform = document.getElementById('platform').value;
+    // Clone Button
+    const cloneBtn = document.getElementById('clone-btn');
+    cloneBtn.addEventListener('click', cloneChannel);
+
+    // Refresh Files Button
+    const refreshFilesBtn = document.getElementById('refresh-files-btn');
+    refreshFilesBtn.addEventListener('click', loadFiles);
+
+    // Auto-refresh downloads every 2 seconds
+    setInterval(loadDownloads, 2000);
+
+    // Initial load
+    loadDownloads();
+});
+
+// Start Download
+async function startDownload() {
+    const url = document.getElementById('url').value.trim();
     const quality = document.getElementById('quality').value;
+    const platform = document.getElementById('platform').value;
     const audioOnly = document.getElementById('audio-only').checked;
-    const playlist = document.getElementById('playlist').checked;
-    
-    const data = {
-        platform: platform === 'auto' ? 'unknown' : platform,
-        quality,
-        audio_only: audioOnly,
-        playlist
-    };
-    
-    // Check if it's a username or URL
-    if (url.startsWith('http')) {
-        data.url = url;
-    } else {
-        data.username = url;
+    const isPlaylist = document.getElementById('is-playlist').checked;
+
+    if (!url) {
+        showNotification('Please enter a URL', 'error');
+        return;
     }
-    
-    const resultDiv = document.getElementById('download-result');
-    const progressFill = document.getElementById('progress-fill');
-    const progressText = document.getElementById('progress-text');
-    const filesList = document.getElementById('files-list');
-    
-    resultDiv.classList.remove('hidden');
-    progressFill.style.width = '0%';
-    progressText.textContent = 'Starting download...';
-    filesList.innerHTML = '';
-    
+
+    const downloadBtn = document.getElementById('download-btn');
+    downloadBtn.disabled = true;
+    downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+
     try {
         const response = await fetch('/api/download', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                url,
+                quality,
+                audio_only: audioOnly,
+                is_playlist: isPlaylist,
+                platform: platform !== 'auto' ? platform : undefined
+            })
         });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            updateProgress(result.task);
-            
-            if (result.task.files_downloaded && result.task.files_downloaded.length > 0) {
-                filesList.innerHTML = '<h4>Downloaded Files:</h4>' + 
-                    result.task.files_downloaded.map(f => 
-                        `<div class="file-item"><div class="file-name">${f}</div></div>`
-                    ).join('');
-            }
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showNotification(`Download started: ${data.type}`, 'success');
+            document.getElementById('url').value = '';
+            loadDownloads();
         } else {
-            showError(result.error);
+            showNotification(data.error || 'Download failed', 'error');
         }
     } catch (error) {
-        showError(error.message);
+        showNotification('Error: ' + error.message, 'error');
+    } finally {
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Start Download';
     }
 }
 
-// Update Progress Display
-function updateProgress(task) {
-    const progressFill = document.getElementById('progress-fill');
-    const progressText = document.getElementById('progress-text');
-    
-    progressFill.style.width = `${task.progress}%`;
-    progressText.textContent = task.message;
-    
-    if (task.status === 'completed') {
-        progressText.innerHTML = `<span class="alert-success">✅ ${task.message}</span>`;
-    } else if (task.status === 'failed') {
-        progressText.innerHTML = `<span class="alert-error">❌ ${task.message}</span>`;
-    }
-}
-
-// Handle Telegram Configuration
-async function handleTelegramConfig(e) {
-    e.preventDefault();
-    
-    const apiId = document.getElementById('api-id').value;
-    const apiHash = document.getElementById('api-hash').value;
-    const phone = document.getElementById('phone').value;
-    
+// Load Active Downloads
+async function loadDownloads() {
     try {
-        const response = await fetch('/api/telegram/configure', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ api_id: apiId, api_hash: apiHash, phone })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showSuccess('Telegram connected successfully!');
-            document.getElementById('telegram-status').classList.remove('hidden');
-            checkTelegramStatus();
-        } else {
-            showError(result.error);
+        const response = await fetch('/api/downloads');
+        const data = await response.json();
+
+        const container = document.getElementById('downloads-container');
+
+        if (data.downloads.length === 0) {
+            container.innerHTML = '<p class="empty-state">No active downloads</p>';
+            return;
         }
+
+        container.innerHTML = data.downloads.map(task => createDownloadItem(task)).join('');
     } catch (error) {
-        showError(error.message);
+        console.error('Error loading downloads:', error);
     }
 }
 
-// Handle Telegram Download
-async function handleTelegramDownload(e) {
-    e.preventDefault();
-    
-    const channel = document.getElementById('tg-channel').value;
-    const limit = document.getElementById('tg-limit').value;
-    
-    try {
-        const response = await fetch('/api/telegram/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ channel, limit })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showSuccess(`Download started: ${result.task.message}`);
-            loadTasks();
-        } else {
-            showError(result.error);
-        }
-    } catch (error) {
-        showError(error.message);
-    }
+// Create Download Item HTML
+function createDownloadItem(task) {
+    const statusClass = `status-${task.status}`;
+    const itemClass = task.status === 'completed' ? 'completed' : 
+                      task.status === 'failed' ? 'failed' : '';
+
+    return `
+        <div class="download-item ${itemClass}">
+            <div class="download-header">
+                <span class="download-url">${escapeHtml(task.url)}</span>
+                <span class="download-type">${task.type}</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${task.progress}%"></div>
+            </div>
+            <div class="download-stats">
+                <span class="download-stat ${statusClass}">
+                    <i class="fas fa-circle-notch ${task.status === 'downloading' ? 'fa-spin' : ''}"></i>
+                    ${capitalize(task.status)}
+                </span>
+                <span class="download-stat">
+                    <i class="fas fa-tachometer-alt"></i> ${task.speed}
+                </span>
+                <span class="download-stat">
+                    <i class="fas fa-clock"></i> ${task.eta}
+                </span>
+                <span class="download-stat">
+                    <i class="fas fa-hdd"></i> ${task.downloaded} / ${task.total}
+                </span>
+                ${task.filename ? `
+                <span class="download-stat">
+                    <i class="fas fa-file"></i> ${escapeHtml(task.filename)}
+                </span>
+                ` : ''}
+            </div>
+            ${task.error ? `<p style="color: var(--danger-color); margin-top: 10px;">Error: ${escapeHtml(task.error)}</p>` : ''}
+        </div>
+    `;
 }
 
-// Handle Telegram Clone
-async function handleTelegramClone(e) {
-    e.preventDefault();
-    
-    const source = document.getElementById('clone-source').value;
-    const dest = document.getElementById('clone-dest').value;
-    const type = document.getElementById('clone-type').value;
-    const limit = document.getElementById('clone-limit').value;
-    
+// Clone Telegram Channel
+async function cloneChannel() {
+    const apiId = document.getElementById('tg-api-id').value.trim();
+    const apiHash = document.getElementById('tg-api-hash').value.trim();
+    const phone = document.getElementById('tg-phone').value.trim();
+    const source = document.getElementById('tg-source').value.trim();
+    const dest = document.getElementById('tg-dest').value.trim();
+    const cloneType = document.getElementById('tg-clone-type').value;
+    const limit = parseInt(document.getElementById('tg-limit').value);
+
+    if (!apiId || !apiHash || !phone || !source || !dest) {
+        showNotification('Please fill in all required fields', 'error');
+        return;
+    }
+
+    const cloneBtn = document.getElementById('clone-btn');
+    cloneBtn.disabled = true;
+    cloneBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cloning...';
+
     try {
         const response = await fetch('/api/telegram/clone', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source, dest, type, limit })
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                api_id: parseInt(apiId),
+                api_hash: apiHash,
+                phone,
+                source,
+                dest,
+                clone_type: cloneType,
+                limit
+            })
         });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showSuccess(`Clone started: ${result.task.message}`);
-            loadTasks();
-        } else {
-            showError(result.error);
-        }
-    } catch (error) {
-        showError(error.message);
-    }
-}
 
-// Load Tasks
-async function loadTasks() {
-    try {
-        const response = await fetch('/api/tasks');
-        const result = await response.json();
-        
-        if (result.success) {
-            const tasksList = document.getElementById('tasks-list');
-            
-            if (result.tasks.length === 0) {
-                tasksList.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">No tasks yet</p>';
-                return;
-            }
-            
-            tasksList.innerHTML = result.tasks.map(task => `
-                <div class="task-item status-${task.status}">
-                    <div class="task-header">
-                        <span class="task-platform">${task.platform.toUpperCase()}</span>
-                        <span class="task-status status-${task.status}">${task.status}</span>
-                    </div>
-                    <div class="task-url">${task.url || task.username || 'N/A'}</div>
-                    <div class="task-progress">
-                        <strong>Progress:</strong> ${task.progress.toFixed(1)}% - ${task.message}
-                    </div>
-                    <div class="task-time">
-                        <small>Created: ${new Date(task.created_at).toLocaleString()}</small>
-                        ${task.completed_at ? `<small> | Completed: ${new Date(task.completed_at).toLocaleString()}</small>` : ''}
-                    </div>
-                    ${task.files_downloaded && task.files_downloaded.length > 0 ? 
-                        `<div class="task-files"><small>Files: ${task.files_downloaded.length}</small></div>` : ''}
-                </div>
-            `).join('');
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showNotification(`Successfully cloned ${data.cloned_count} messages`, 'success');
+        } else {
+            showNotification(data.error || 'Clone failed', 'error');
         }
     } catch (error) {
-        console.error('Error loading tasks:', error);
+        showNotification('Error: ' + error.message, 'error');
+    } finally {
+        cloneBtn.disabled = false;
+        cloneBtn.innerHTML = '<i class="fas fa-copy"></i> Clone Channel/Group';
     }
 }
 
 // Load Files
 async function loadFiles() {
     try {
-        const response = await fetch('/api/downloads');
-        const result = await response.json();
-        
-        if (result.success) {
-            const filesGrid = document.getElementById('files-grid');
-            
-            if (result.files.length === 0) {
-                filesGrid.innerHTML = '<p style="color: var(--text-secondary); text-align: center; grid-column: 1/-1;">No files downloaded yet</p>';
-                return;
-            }
-            
-            filesGrid.innerHTML = result.files.map(file => {
-                const icon = getFileIcon(file.name);
-                const size = formatFileSize(file.size);
-                
-                return `
-                    <div class="file-item">
-                        <div class="file-icon">${icon}</div>
-                        <div class="file-name">${file.name}</div>
-                        <div class="file-size">${size}</div>
-                        <a href="${file.url}" class="file-link" download>⬇️ Download</a>
-                    </div>
-                `;
-            }).join('');
+        const response = await fetch('/api/files');
+        const data = await response.json();
+
+        const container = document.getElementById('files-container');
+
+        if (data.files.length === 0) {
+            container.innerHTML = '<p class="empty-state">No files downloaded yet</p>';
+            return;
         }
+
+        container.innerHTML = data.files.map(file => `
+            <div class="file-item">
+                <div class="file-info">
+                    <i class="fas fa-file-video file-icon"></i>
+                    <div>
+                        <div class="file-name">${escapeHtml(file.name)}</div>
+                        <div class="file-meta">${formatSize(file.size)} • ${formatDate(file.modified)}</div>
+                    </div>
+                </div>
+                <div class="file-actions">
+                    <a href="/api/files/${encodeURIComponent(file.path)}" download>
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                </div>
+            </div>
+        `).join('');
     } catch (error) {
         console.error('Error loading files:', error);
     }
 }
 
-// Check Telegram Status
-async function checkTelegramStatus() {
-    try {
-        const response = await fetch('/api/telegram/status');
-        const result = await response.json();
-        
-        if (result.configured) {
-            document.getElementById('telegram-status').classList.remove('hidden');
-        } else {
-            document.getElementById('telegram-status').classList.add('hidden');
-        }
-    } catch (error) {
-        console.error('Error checking Telegram status:', error);
-    }
-}
-
-// Helper Functions
-function getFileIcon(filename) {
-    const ext = filename.split('.').pop().toLowerCase();
-    const icons = {
-        mp4: '🎬', mkv: '🎬', avi: '🎬', mov: '🎬', webm: '🎬',
-        mp3: '🎵', wav: '🎵', flac: '🎵', aac: '🎵',
-        jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', webp: '🖼️',
-        pdf: '📄', doc: '📄', docx: '📄', txt: '📄'
+// Show Notification
+function showNotification(message, type = 'info') {
+    const colors = {
+        success: '#10b981',
+        error: '#ef4444',
+        warning: '#f59e0b',
+        info: '#6366f1'
     };
-    return icons[ext] || '📁';
+
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${colors[type]};
+        color: white;
+        padding: 16px 24px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+    `;
+    notification.textContent = message;
+
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
 }
 
-function formatFileSize(bytes) {
+// Utility Functions
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function formatSize(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -309,29 +292,23 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function showSuccess(message) {
-    showAlert(message, 'success');
+function formatDate(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
-function showError(message) {
-    showAlert(message, 'error');
-}
-
-function showAlert(message, type) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type}`;
-    alertDiv.textContent = message;
-    
-    const card = document.querySelector('.card') || document.body;
-    card.insertBefore(alertDiv, card.firstChild);
-    
-    setTimeout(() => alertDiv.remove(), 5000);
-}
-
-// Auto-refresh tasks every 5 seconds when on tasks tab
-setInterval(() => {
-    const tasksTab = document.getElementById('tasks-tab');
-    if (tasksTab.classList.contains('active')) {
-        loadTasks();
+// Add animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(400px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
     }
-}, 5000);
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(400px); opacity: 0; }
+    }
+`;
+document.head.appendChild(style);
+
+console.log('Universal Downloader Frontend loaded');

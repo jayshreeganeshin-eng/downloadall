@@ -1,32 +1,34 @@
+#!/usr/bin/env python3
 """
-Universal Downloader - Web Server & CLI
-Production-ready Flask application with REST API and command-line interface
-Supports 1871+ platforms via yt-dlp
+Universal Downloader - Production Ready
+Web GUI + CLI Interface
+Supports: 1871+ Social Media, Torrents, Tor, Telegram
 """
 
 import os
 import sys
-import uuid
-import asyncio
-import argparse
 import json
-from datetime import datetime
+import asyncio
+import threading
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from datetime import datetime
+from typing import Optional, Dict, Any
 
 # Add core to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
+import click
 
-try:
-    from core.engine import UniversalDownloader, TelegramDownloader
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Make sure you're running from the project root directory")
-    sys.exit(1)
-
+# Import core engine
+from core.engine import (
+    UniversalDownloader,
+    URLDetector,
+    DownloadType,
+    DownloadStatus,
+    TelegramDownloader
+)
 
 # Initialize Flask app
 app = Flask(__name__, 
@@ -34,13 +36,17 @@ app = Flask(__name__,
             static_folder='web/static')
 CORS(app)
 
-# Initialize downloaders
-universal_downloader = UniversalDownloader(download_dir='./downloads')
-telegram_downloader: Optional[TelegramDownloader] = None
-telegram_client_session = None
+# Global downloader instance
+downloader = None
+download_tasks = {}
 
-# Store active telegram session config
-telegram_config: Dict[str, Any] = {}
+
+def get_downloader():
+    """Get or create downloader instance"""
+    global downloader
+    if downloader is None:
+        downloader = UniversalDownloader('downloads')
+    return downloader
 
 
 # ==================== WEB ROUTES ====================
@@ -51,470 +57,437 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/api/platforms')
-def get_platforms():
-    """Get list of supported platforms"""
+@app.route('/api/status')
+def api_status():
+    """Get API status"""
     return jsonify({
-        'platforms': list(UniversalDownloader.SUPPORTED_PLATFORMS.keys()),
-        'qualities': ['2160', '1440', '1080', '720', '480', '360', 'best'],
+        'status': 'online',
+        'version': '2.0.0',
+        'timestamp': datetime.now().isoformat(),
         'features': {
-            'video_download': True,
-            'audio_only': True,
-            'playlist_support': True,
-            'profile_download': True,
-            'telegram_clone': True,
+            'social_media': True,
+            'torrent': True,
+            'tor': True,
+            'telegram': True
         }
     })
 
 
 @app.route('/api/download', methods=['POST'])
-def start_download():
-    """Start a new download task"""
-    data = request.json
-    
-    if not data.get('url') and not data.get('username'):
-        return jsonify({
-            'success': False,
-            'error': 'URL or username is required'
-        }), 400
-    
+def api_download():
+    """Start a new download"""
     try:
-        # Create and execute download
-        task = universal_downloader.create_task(
-            url=data.get('url', ''),
-            quality=data.get('quality', 'best'),
-            audio_only=data.get('audio_only', False),
-            playlist=data.get('playlist', False),
-            username=data.get('username')
-        )
+        data = request.json
+        url = data.get('url')
         
-        # Execute download in background thread
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+        
+        # Get options
+        quality = data.get('quality', 'best')
+        audio_only = data.get('audio_only', False)
+        is_playlist = data.get('is_playlist', False)
+        username = data.get('username')
+        platform = data.get('platform')
+        
+        # Start download in background thread
         def run_download():
-            universal_downloader.download(task.id)
+            try:
+                dler = get_downloader()
+                task = dler.download(
+                    url,
+                    quality=quality,
+                    audio_only=audio_only,
+                    is_playlist=is_playlist,
+                    username=username,
+                    platform=platform
+                )
+                download_tasks[task.id] = task
+            except Exception as e:
+                print(f"Download error: {e}")
         
-        import threading
         thread = threading.Thread(target=run_download)
+        thread.daemon = True
         thread.start()
         
+        # Return initial task info
+        download_type = URLDetector.detect_type(url)
         return jsonify({
             'success': True,
-            'task_id': task.id,
             'message': 'Download started',
-            'task': task.to_dict()
+            'type': download_type.value,
+            'estimated_time': 'Starting...'
         })
-    
+        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/status/<task_id>')
-def get_status(task_id: str):
-    """Get download task status"""
-    task = universal_downloader.get_task(task_id)
-    if task:
-        return jsonify({'success': True, 'task': task.to_dict()})
-    return jsonify({'success': False, 'error': 'Task not found'}), 404
-
-
-@app.route('/api/tasks')
-def list_tasks():
-    """List all download tasks"""
-    tasks = universal_downloader.list_tasks()
-    return jsonify({'success': True, 'tasks': tasks})
-
-
-@app.route('/api/cancel/<task_id>', methods=['POST'])
-def cancel_task(task_id: str):
-    """Cancel a download task"""
-    success = universal_downloader.cancel_task(task_id)
-    return jsonify({'success': success})
-
-
-@app.route('/api/files')
-def list_files():
-    """List downloaded files"""
-    download_dir = Path('./downloads')
-    files = []
-    
-    if download_dir.exists():
-        for f in download_dir.iterdir():
-            if f.is_file() and not f.name.startswith('.'):
-                files.append({
-                    'name': f.name,
-                    'size': f.stat().st_size,
-                    'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    'path': str(f)
-                })
-    
-    # Also check telegram downloads
-    telegram_dir = Path('./downloads/telegram')
-    if telegram_dir.exists():
-        for f in telegram_dir.iterdir():
-            if f.is_file() and not f.name.startswith('.'):
-                files.append({
-                    'name': f.name,
-                    'size': f.stat().st_size,
-                    'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    'path': str(f)
-                })
-    
-    return jsonify({'success': True, 'files': files})
-
-
-@app.route('/api/files/<path:filename>')
-def download_file(filename: str):
-    """Download a file"""
-    return send_from_directory('./downloads', filename, as_attachment=True)
-
-
-@app.route('/api/files/delete/<path:filename>', methods=['DELETE'])
-def delete_file(filename: str):
-    """Delete a file"""
+@app.route('/api/downloads')
+def api_downloads():
+    """Get all active downloads"""
     try:
-        filepath = Path('./downloads') / filename
-        if filepath.exists():
-            filepath.unlink()
-            return jsonify({'success': True, 'message': 'File deleted'})
-        
-        # Try telegram dir
-        filepath = Path('./downloads/telegram') / filename
-        if filepath.exists():
-            filepath.unlink()
-            return jsonify({'success': True, 'message': 'File deleted'})
-        
-        return jsonify({'success': False, 'error': 'File not found'}), 404
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ==================== TELEGRAM ROUTES ====================
-
-@app.route('/api/telegram/configure', methods=['POST'])
-def configure_telegram():
-    """Configure Telegram connection"""
-    global telegram_downloader, telegram_config
-    
-    data = request.json
-    try:
-        telegram_config = {
-            'api_id': int(data['api_id']),
-            'api_hash': data['api_hash'],
-            'phone': data['phone']
-        }
-        
-        telegram_downloader = TelegramDownloader(
-            api_id=telegram_config['api_id'],
-            api_hash=telegram_config['api_hash'],
-            phone=telegram_config['phone']
-        )
-        
+        dler = get_downloader()
+        tasks = dler.list_active_downloads()
         return jsonify({
-            'success': True,
-            'message': 'Telegram configured successfully. Connect to start session.'
-        })
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/telegram/connect', methods=['POST'])
-async def connect_telegram():
-    """Connect to Telegram"""
-    global telegram_downloader, telegram_client_session
-    
-    if not telegram_downloader:
-        return jsonify({
-            'success': False,
-            'error': 'Telegram not configured. Call /api/telegram/configure first'
-        }), 400
-    
-    try:
-        await telegram_downloader.connect()
-        return jsonify({
-            'success': True,
-            'message': 'Connected to Telegram'
+            'downloads': [task.to_dict() for task in tasks],
+            'count': len(tasks)
         })
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/telegram/download', methods=['POST'])
-async def telegram_download():
-    """Download media from Telegram channel"""
-    global telegram_downloader
-    
-    if not telegram_downloader:
-        return jsonify({
-            'success': False,
-            'error': 'Telegram not configured'
-        }), 400
-    
-    data = request.json
-    task_id = f"tg_{uuid.uuid4().hex[:8]}"
-    
+@app.route('/api/download/<task_id>')
+def api_download_status(task_id):
+    """Get specific download status"""
     try:
-        channel = data.get('channel')
-        limit = int(data.get('limit', 100))
+        dler = get_downloader()
+        task = dler.get_progress(task_id)
         
-        def progress_callback(count, total):
-            pass  # Could update task status here
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
         
-        files = await telegram_downloader.download_channel_media(
-            channel=channel,
-            limit=limit,
-            callback=progress_callback
-        )
+        return jsonify(task.to_dict())
         
-        return jsonify({
-            'success': True,
-            'task_id': task_id,
-            'files_downloaded': len(files),
-            'message': f'Downloaded {len(files)} files from {channel}'
-        })
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/download/<task_id>/cancel', methods=['POST'])
+def api_cancel_download(task_id):
+    """Cancel a download"""
+    try:
+        dler = get_downloader()
+        success = dler.cancel_download(task_id)
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Download cancelled'})
+        else:
+            return jsonify({'error': 'Task not found'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/telegram/clone', methods=['POST'])
-async def telegram_clone():
+def api_telegram_clone():
     """Clone Telegram channel/group"""
-    global telegram_downloader
-    
-    if not telegram_downloader:
-        return jsonify({
-            'success': False,
-            'error': 'Telegram not configured'
-        }), 400
-    
-    data = request.json
-    task_id = f"tc_{uuid.uuid4().hex[:8]}"
-    
     try:
-        source = data.get('clone_source')
-        dest = data.get('clone_dest')
+        data = request.json
+        api_id = data.get('api_id')
+        api_hash = data.get('api_hash')
+        phone = data.get('phone')
+        source = data.get('source')
+        dest = data.get('dest')
         clone_type = data.get('clone_type', 'channel')
-        limit = int(data.get('limit', 100))
+        limit = data.get('limit', 100)
         
-        def progress_callback(count, total):
-            pass
+        if not all([api_id, api_hash, phone, source, dest]):
+            return jsonify({'error': 'Missing required parameters'}), 400
         
-        if clone_type == 'group':
-            count = await telegram_downloader.clone_group(
-                source=source,
-                destination=dest,
-                limit=limit,
-                callback=progress_callback
-            )
-        else:
-            count = await telegram_downloader.clone_channel(
-                source=source,
-                destination=dest,
-                limit=limit,
-                callback=progress_callback
-            )
+        # Run cloning in background
+        async def run_clone():
+            tg = TelegramDownloader(int(api_id), api_hash, phone)
+            await tg.connect()
+            
+            if clone_type == 'channel':
+                result = await tg.clone_channel(source, dest, limit)
+            else:
+                result = await tg.clone_group(source, dest, limit)
+            
+            await tg.disconnect()
+            return result
+        
+        # Start async task
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(run_clone())
         
         return jsonify({
             'success': True,
-            'task_id': task_id,
-            'messages_cloned': count,
-            'message': f'Cloned {count} messages from {source} to {dest}'
+            'cloned_count': result,
+            'message': f'Cloned {result} messages'
         })
+        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/telegram/disconnect', methods=['POST'])
-async def disconnect_telegram():
-    """Disconnect from Telegram"""
-    global telegram_downloader
-    
-    if telegram_downloader:
-        await telegram_downloader.disconnect()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Disconnected from Telegram'
-    })
+@app.route('/api/files')
+def api_files():
+    """List downloaded files"""
+    try:
+        download_dir = Path('downloads')
+        if not download_dir.exists():
+            return jsonify({'files': []})
+        
+        files = []
+        for file_path in download_dir.rglob('*'):
+            if file_path.is_file():
+                files.append({
+                    'name': file_path.name,
+                    'path': str(file_path.relative_to(download_dir)),
+                    'size': file_path.stat().st_size,
+                    'modified': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+                })
+        
+        return jsonify({'files': files, 'count': len(files)})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
-# ==================== UTILITY ROUTES ====================
-
-@app.route('/api/stats')
-def get_stats():
-    """Get application statistics"""
-    download_dir = Path('./downloads')
-    total_size = sum(f.stat().st_size for f in download_dir.glob('*') if f.is_file())
-    
-    telegram_dir = Path('./downloads/telegram')
-    if telegram_dir.exists():
-        total_size += sum(f.stat().st_size for f in telegram_dir.glob('*') if f.is_file())
-    
-    return jsonify({
-        'total_downloads': len(universal_downloader.list_tasks()),
-        'completed': len([t for t in universal_downloader.list_tasks() if t['status'] == 'completed']),
-        'failed': len([t for t in universal_downloader.list_tasks() if t['status'] == 'failed']),
-        'total_size_mb': round(total_size / 1024 / 1024, 2),
-        'supported_platforms': len(UniversalDownloader.SUPPORTED_PLATFORMS) + 1850,
-        'telegram_configured': telegram_downloader is not None
-    })
+@app.route('/api/files/<path:filename>')
+def api_download_file(filename):
+    """Download a file"""
+    return send_from_directory('downloads', filename, as_attachment=True)
 
 
 # ==================== CLI INTERFACE ====================
 
-def run_cli():
-    """Run command-line interface"""
-    parser = argparse.ArgumentParser(
-        description='Universal Downloader - Download from any social media platform',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python app.py -u "https://youtube.com/watch?v=ID" -q 1080
-  python app.py -u "https://youtube.com/playlist?list=ID" -p
-  python app.py -u "https://youtube.com/watch?v=ID" -a
-  python app.py --username myuser --platform instagram
-  python app.py --web --port 5000
+@click.group()
+@click.version_option(version='2.0.0')
+def cli():
+    """
+    Universal Downloader - Production Ready
+    
+    Download from 1871+ platforms including YouTube, Instagram, TikTok,
+    Twitter, Facebook, Telegram, Torrents, Tor networks, and more.
+    
+    Examples:
+    
+      # Download YouTube video
+      $ python app.py -u "https://youtube.com/watch?v=ID" -q 1080
+      
+      # Download audio only
+      $ python app.py -u "https://youtube.com/watch?v=ID" -a
+      
+      # Download playlist
+      $ python app.py -u "https://youtube.com/playlist?list=ID" -l
+      
+      # Download Instagram profile
+      $ python app.py --username username --platform instagram
+      
+      # Download torrent
+      $ python app.py -u "magnet:?xt=urn:btih:HASH"
+      
+      # Download from Tor
+      $ python app.py -u "http://example.onion/file.zip"
+      
+      # Clone Telegram channel
+      $ python app.py --telegram --api-id ID --api-hash HASH \\
+          --phone +1234567890 --clone-source @src --clone-dest @dest
+      
+      # Start web interface
+      $ python app.py --web --port 5000
+    """
+    pass
 
-Telegram Examples:
-  python app.py --telegram --api-id ID --api-hash HASH --phone +1234567890 --channel @channel
-  python app.py --telegram --api-id ID --api-hash HASH --phone +1234567890 \\
-           --clone-source @src --clone-dest @dest --clone-type channel
-        """
+
+@cli.command()
+@click.option('-u', '--url', help='URL to download')
+@click.option('-q', '--quality', default='best', 
+              type=click.Choice(['8k', '4k', '1440', '1080', '720', '480', '360', 'best']),
+              help='Video quality')
+@click.option('-a', '--audio-only', is_flag=True, help='Download audio only (MP3)')
+@click.option('-l', '--playlist', is_flag=True, help='Download playlist')
+@click.option('--username', help='Username for profile download')
+@click.option('-P', '--platform', help='Platform name (instagram, tiktok, twitter, etc)')
+@click.option('--telegram', is_flag=True, help='Use Telegram mode')
+@click.option('--api-id', help='Telegram API ID')
+@click.option('--api-hash', help='Telegram API hash')
+@click.option('--phone', help='Telegram phone number')
+@click.option('--channel', help='Telegram channel to download')
+@click.option('--clone-source', help='Source channel/group for cloning')
+@click.option('--clone-dest', help='Destination channel/group for cloning')
+@click.option('--clone-type', type=click.Choice(['channel', 'group']), default='channel')
+@click.option('--limit', default=100, help='Message limit for Telegram')
+@click.option('-o', '--output', default='downloads', help='Output directory')
+def download(url, quality, audio_only, playlist, username, platform,
+             telegram, api_id, api_hash, phone, channel, 
+             clone_source, clone_dest, clone_type, limit, output):
+    """Download content from various platforms"""
+    
+    try:
+        dler = UniversalDownloader(output)
+        
+        # Telegram mode
+        if telegram:
+            if not all([api_id, api_hash, phone]):
+                click.echo("❌ Error: Telegram requires --api-id, --api-hash, and --phone")
+                return
+            
+            if clone_source and clone_dest:
+                # Clone channel/group
+                click.echo(f"🔄 Cloning {clone_type} from {clone_source} to {clone_dest}...")
+                
+                async def run_clone():
+                    tg = TelegramDownloader(int(api_id), api_hash, phone)
+                    await tg.connect()
+                    
+                    if clone_type == 'channel':
+                        result = await tg.clone_channel(clone_source, clone_dest, limit)
+                    else:
+                        result = await tg.clone_group(clone_source, clone_dest, limit)
+                    
+                    await tg.disconnect()
+                    return result
+                
+                loop = asyncio.new_event_loop()
+                result = loop.run_until_complete(run_clone())
+                click.echo(f"✅ Cloned {result} messages")
+                
+            elif channel:
+                # Download channel media
+                click.echo(f"📥 Downloading media from {channel}...")
+                
+                async def run_download():
+                    tg = TelegramDownloader(int(api_id), api_hash, phone)
+                    await tg.connect()
+                    files = await tg.download_channel_media(channel, output, limit)
+                    await tg.disconnect()
+                    return files
+                
+                loop = asyncio.new_event_loop()
+                files = loop.run_until_complete(run_download())
+                click.echo(f"✅ Downloaded {len(files)} files")
+            else:
+                click.echo("❌ Error: Specify --channel or --clone-source/--clone-dest")
+            return
+        
+        # Auto-detect and download
+        if url:
+            click.echo(f"📥 Downloading: {url}")
+            click.echo(f"   Type: {URLDetector.detect_type(url).value}")
+            click.echo(f"   Quality: {quality}")
+            click.echo(f"   Audio Only: {audio_only}")
+            
+            task = dler.download(
+                url,
+                quality=quality,
+                audio_only=audio_only,
+                is_playlist=playlist,
+                username=username,
+                platform=platform
+            )
+            
+            if task.status == DownloadStatus.COMPLETED:
+                click.echo(f"✅ Downloaded: {task.filename}")
+            elif task.status == DownloadStatus.FAILED:
+                click.echo(f"❌ Failed: {task.error}")
+            else:
+                click.echo(f"⏳ Status: {task.status.value} ({task.progress}%)")
+        else:
+            click.echo("❌ Error: Provide a URL with -u or --url")
+            
+    except Exception as e:
+        click.echo(f"❌ Error: {e}")
+
+
+@cli.command()
+@click.option('--port', default=5000, help='Port to run web server')
+@click.option('--host', default='127.0.0.1', help='Host to bind')
+@click.option('--debug', is_flag=True, help='Enable debug mode')
+def web(port, host, debug):
+    """Start web interface"""
+    click.echo(f"🚀 Starting web interface at http://{host}:{port}")
+    click.echo("   Press Ctrl+C to stop")
+    app.run(host=host, port=port, debug=debug)
+
+
+@cli.command()
+def info():
+    """Show system information"""
+    from core.engine import (
+        YTDLP_AVAILABLE, LIBTORRENT_AVAILABLE, 
+        TELETHON_AVAILABLE, REQUESTS_AVAILABLE
     )
     
-    # Download options
-    parser.add_argument('-u', '--url', help='URL to download')
-    parser.add_argument('--username', help='Username for profile download')
-    parser.add_argument('-P', '--platform', help='Platform (youtube, instagram, tiktok, twitter, etc.)')
-    parser.add_argument('-q', '--quality', choices=['2160', '1440', '1080', '720', '480', '360', 'best'],
-                       default='best', help='Video quality')
-    parser.add_argument('-a', '--audio-only', action='store_true', help='Download audio only (MP3)')
-    parser.add_argument('-l', '--playlist', action='store_true', help='Download playlist')
+    try:
+        import yt_dlp
+        ytdlp_version = yt_dlp.version.__version__
+    except:
+        ytdlp_version = 'Not installed'
     
-    # Telegram options
-    parser.add_argument('--telegram', action='store_true', help='Use Telegram downloader')
-    parser.add_argument('--api-id', type=int, help='Telegram API ID')
-    parser.add_argument('--api-hash', help='Telegram API Hash')
-    parser.add_argument('--phone', help='Telegram phone number')
-    parser.add_argument('--channel', help='Telegram channel to download')
-    parser.add_argument('--clone-source', help='Source channel/group for cloning')
-    parser.add_argument('--clone-dest', help='Destination channel/group for cloning')
-    parser.add_argument('--clone-type', choices=['channel', 'group'], default='channel',
-                       help='Type of clone operation')
-    parser.add_argument('--limit', type=int, default=100, help='Limit number of messages/media')
+    try:
+        import libtorrent
+        lt_version = libtorrent.__version__
+    except:
+        lt_version = 'Not installed'
     
-    # Web server options
-    parser.add_argument('--web', action='store_true', help='Start web interface')
-    parser.add_argument('--port', type=int, default=5000, help='Web server port')
-    parser.add_argument('--host', default='127.0.0.1', help='Web server host')
+    click.echo("📊 Universal Downloader - System Info")
+    click.echo("=" * 40)
+    click.echo(f"Version: 2.0.0")
+    click.echo(f"Python: {sys.version.split()[0]}")
+    click.echo("")
+    click.echo("Features:")
+    click.echo(f"  ✓ yt-dlp: {ytdlp_version} ({'Available' if YTDLP_AVAILABLE else 'Not available'})")
+    click.echo(f"  ✓ libtorrent: {lt_version} ({'Available' if LIBTORRENT_AVAILABLE else 'Not available'})")
+    click.echo(f"  ✓ Telethon: {'Available' if TELETHON_AVAILABLE else 'Not available'}")
+    click.echo(f"  ✓ Requests: {'Available' if REQUESTS_AVAILABLE else 'Not available'}")
+    click.echo("")
+    click.echo("Supported Platforms: 1871+")
+    click.echo("  YouTube, Instagram, TikTok, Twitter/X, Facebook,")
+    click.echo("  LinkedIn, Snapchat, Pinterest, Reddit, Twitch,")
+    click.echo("  Vimeo, Dailymotion, Bilibili, Discord, and more...")
+
+
+@cli.command()
+def test():
+    """Run self-test"""
+    click.echo("🧪 Running self-test...")
     
-    args = parser.parse_args()
+    tests_passed = 0
+    tests_total = 0
     
-    # Web mode
-    if args.web:
-        print(f"🌐 Starting Universal Downloader Web Interface")
-        print(f"📍 Open http://{args.host}:{args.port} in your browser")
-        print(f"💡 Press Ctrl+C to stop")
-        app.run(host=args.host, port=args.port, debug=False, threaded=True)
-        return
+    # Test 1: Import core
+    tests_total += 1
+    try:
+        from core.engine import UniversalDownloader, URLDetector
+        click.echo("✓ Core engine import")
+        tests_passed += 1
+    except Exception as e:
+        click.echo(f"✗ Core engine import: {e}")
     
-    # Telegram mode
-    if args.telegram:
-        if not all([args.api_id, args.api_hash, args.phone]):
-            print("❌ Error: Telegram requires --api-id, --api-hash, and --phone")
-            sys.exit(1)
-        
-        tg = TelegramDownloader(args.api_id, args.api_hash, args.phone)
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            print("🔌 Connecting to Telegram...")
-            loop.run_until_complete(tg.connect())
-            
-            if args.clone_source and args.clone_dest:
-                print(f"🔄 Cloning {args.clone_type} from {args.clone_source} to {args.clone_dest}")
-                if args.clone_type == 'group':
-                    count = loop.run_until_complete(
-                        tg.clone_group(args.clone_source, args.clone_dest, args.limit)
-                    )
-                else:
-                    count = loop.run_until_complete(
-                        tg.clone_channel(args.clone_source, args.clone_dest, args.limit)
-                    )
-                print(f"✅ Cloned {count} messages")
-            
-            elif args.channel:
-                print(f"📥 Downloading media from {args.channel}")
-                files = loop.run_until_complete(
-                    tg.download_channel_media(args.channel, args.limit)
-                )
-                print(f"✅ Downloaded {len(files)} files")
-            
-            else:
-                print("❌ Error: Specify --channel or --clone-source/--clone-dest")
-            
-            loop.run_until_complete(tg.disconnect())
-            
-        except Exception as e:
-            print(f"❌ Telegram error: {e}")
-            sys.exit(1)
-        finally:
-            loop.close()
-        return
+    # Test 2: URL detection
+    tests_total += 1
+    try:
+        assert URLDetector.detect_type('https://youtube.com/watch?v=ID') == DownloadType.SOCIAL_MEDIA
+        assert URLDetector.detect_type('magnet:?xt=urn:btih:HASH') == DownloadType.TORRENT
+        assert URLDetector.detect_type('http://test.onion/file') == DownloadType.TOR
+        click.echo("✓ URL detection")
+        tests_passed += 1
+    except Exception as e:
+        click.echo(f"✗ URL detection: {e}")
     
-    # Standard download mode
-    if args.url or args.username:
-        downloader = UniversalDownloader()
-        
-        print(f"🎯 Platform: {args.platform or 'auto-detect'}")
-        print(f"📥 URL: {args.url or f'@{args.username}'}")
-        print(f"🎬 Quality: {args.quality}")
-        print(f"🎵 Audio-only: {args.audio_only}")
-        print(f"📋 Playlist: {args.playlist}")
-        print()
-        
-        task = downloader.create_task(
-            url=args.url or '',
-            quality=args.quality,
-            audio_only=args.audio_only,
-            playlist=args.playlist,
-            username=args.username
-        )
-        
-        print(f"⏳ Starting download (Task ID: {task.id})...")
-        success = downloader.download(task.id)
-        
-        if success:
-            print(f"✅ Download completed: {task.filename}")
-        else:
-            print(f"❌ Download failed: {task.error}")
-            sys.exit(1)
-        return
+    # Test 3: Create downloader
+    tests_total += 1
+    try:
+        dler = UniversalDownloader('downloads')
+        click.echo("✓ Downloader initialization")
+        tests_passed += 1
+    except Exception as e:
+        click.echo(f"✗ Downloader initialization: {e}")
     
-    # No arguments provided
-    parser.print_help()
+    # Test 4: yt-dlp available
+    tests_total += 1
+    try:
+        import yt_dlp
+        click.echo(f"✓ yt-dlp v{yt_dlp.version.__version__}")
+        tests_passed += 1
+    except Exception as e:
+        click.echo(f"✗ yt-dlp: {e}")
+    
+    # Summary
+    click.echo("")
+    click.echo(f"Results: {tests_passed}/{tests_total} tests passed")
+    
+    if tests_passed == tests_total:
+        click.echo("✅ All tests passed!")
+        return 0
+    else:
+        click.echo("⚠️ Some tests failed")
+        return 1
 
 
 if __name__ == '__main__':
-    # Check if running as CLI or just importing
-    if len(sys.argv) > 1 or 'FLASK_APP' not in os.environ:
-        run_cli()
-    else:
-        # Running as Flask app (e.g., flask run)
-        pass
+    cli()
